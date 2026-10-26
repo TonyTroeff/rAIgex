@@ -1,0 +1,62 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f7f7f9;
+  color: #1d1d22;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 1.5rem;
+}
+
+.regex-input {
+  width: 100%;
+  padding: 12px 14px;
+  font: 1.1rem ui-monospace, Consolas, monospace;
+  border: 1px solid #c4c4cc;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.regex-input:focus {
+  outline: 2px solid #4f6bed;
+  border-color: transparent;
+}
+
+pre {
+  font-family: ui-monospace, Consolas, monospace;
+  overflow-x: auto;
+}
+
+.output {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e2e2e8;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.error {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #fdecec;
+  border: 1px solid #f3b4b4;
+  border-radius: 8px;
+  color: #8a1c1c;
+}
+
+.error pre {
+  margin: 8px 0 0;
+}

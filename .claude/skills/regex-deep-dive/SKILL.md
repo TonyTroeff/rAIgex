@@ -1,6 +1,6 @@
 ---
 name: regex-deep-dive
-description: Explain, construct, and simulate Thompson NFAs for core regex syntax, including wildcards, shorthand categories, character classes, ranges, and negation, with small examples and visualizer-ready JSON.
+description: Explain, construct, and simulate Thompson NFAs for core regex syntax, including wildcards, shorthand categories, character classes, ranges, negation, and anchors (^, $), with small examples and visualizer-ready JSON.
 ---
 
 # Regex Deep Dive
@@ -21,6 +21,7 @@ Make a regex understandable as a machine. For each question, show the smallest u
 | `\D`, `\W`, `\S` | Negations of those three sets |
 | `[abc]`, `[a-z]`, `[a-z0-9_]` | One character from a class, possibly with ranges |
 | `[^abc]`, `[^a-z]`, `[^\d]` | One character **not** in the class |
+| `^`, `$` | Anchors: zero-width assertions for start / end of input |
 
 **Declare the character semantics before tracing:**
 
@@ -29,8 +30,9 @@ Make a regex understandable as a machine. For each question, show the smallest u
 - `.` is one character, not an ε-transition. In typical engine-style mode it excludes line terminators unless dot-all is enabled; in formal “any symbol” mode it matches every character in `Σ`. State which mode is used.
 - A class matches **exactly one** character. Its items are a union; a leading unescaped `^` complements the entire union. Inside a class, `\d`, `\w`, and `\s` contribute their character sets. Escaped `\-` and `\^` can denote literal characters.
 - Negation here applies to **character sets**, not whole regexes. Do not treat lookaheads such as `(?!...)` as character-class negation.
+- `^` and `$` are **anchors** only outside a class. Inside a class, `^` negates only in first position and is a literal elsewhere; `$` is always a literal. `\^` and `\$` are literals everywhere. Declare whether **multiline** mode is on (default: off).
 
-Unsupported by default: anchors (`^`, `$` outside classes), boundaries (`\b`), lookarounds, backreferences, counted repetition (`{m,n}`), lazy/possessive quantifiers, and engine-specific flags or Unicode rules. If a pattern requires one, explain the limitation instead of silently dropping it or changing the regex.
+Unsupported by default: word boundaries (`\b`, `\B`), lookarounds, backreferences, counted repetition (`{m,n}`), lazy/possessive quantifiers, and engine-specific flags or Unicode rules. If a pattern requires one, explain the limitation instead of silently dropping it or changing the regex.
 
 ## Parse first
 
@@ -39,6 +41,8 @@ Precedence, highest to lowest: **postfix** `* + ?`, then **concatenation**, then
 - `ab*` means `a(b*)`, not `(ab)*`.
 - `ab|c` means `(ab)|c`, not `a(b|c)`.
 - `[ab]*` repeats a *single-character class*; `(ab)*` repeats a two-character group.
+- Anchors are atoms in a concatenation: `^ab|c$` means `(^ab)|(c$)`, not `^(ab|c)$`. Use `^(ab|c)$` to anchor every branch.
+- An anchor cannot take a quantifier: `^*` and `$+` are "nothing to repeat" errors. A misplaced anchor such as `a^b` is still valid syntax. It simply never matches when multiline mode is off.
 
 Show a fully parenthesized form when the grouping is not obvious.
 
@@ -50,6 +54,7 @@ A **fragment** has one start and one exit. A transition labeled `ε` consumes no
 | --- | --- |
 | Literal, `.`, shorthand, or class | Two states with one edge carrying its matcher |
 | `ε` | Two states joined by an ε-edge |
+| `^` or `$` | Two states joined by an **assertion edge**: it consumes nothing like ε, but fires only when its position condition holds |
 | `AB` | Add `A.exit --ε--> B.start`; start is `A.start`, exit is `B.exit` |
 | `A|B` | Fresh start branches by ε to both starts; both exits ε-connect to a fresh exit |
 | `A*` | Fresh start ε-connects to `A.start` and the fresh exit; `A.exit` ε-connects back to `A.start` and to the fresh exit |
@@ -84,6 +89,32 @@ At every step, take the **ε-closure**: all states reachable without consuming a
 Accept `abb` because state `5` is active when the input ends. The machine also accepts `a` and rejects `b`.
 
 For character predicates, a similarly short test is `.[^\d]\w` on `@X7`: the dot matches `@`, the negated class matches non-digit `X`, and `\w` matches `7`. In ASCII, `@37` fails because the second character is a digit. Test `\s` with a literal space or tab, and test `\S` with the same character to demonstrate the inverse.
+
+## Anchors and match mode
+
+Anchors only matter once the **match mode** is stated, so always declare it:
+
+- **Full match** accepts only if the whole input is consumed, as in the trace above. It behaves as if the pattern were `^(R)$`, so explicit anchors change nothing.
+- **Search** (default engine behavior, e.g. `RegExp.test`) succeeds if *some substring* matches. An unanchored `ab` matches inside `xaby`. Anchors pin the match to the input boundaries.
+
+Assertion conditions at input position `i` (between characters; `0 ≤ i ≤ n`):
+
+| Anchor | Multiline off | Multiline on (also) |
+| --- | --- | --- |
+| `^` (`start`) | `i = 0` | the character before `i` is a line terminator |
+| `$` (`end`) | `i = n` | the character at `i` is a line terminator |
+
+**Simulation with anchors.** The ε-closure is now taken *at a position*. Follow ε-edges always, and follow an assertion edge only if its condition holds at the current `i`. Search mode then differs from full match in two ways:
+
+1. **Re-seed:** before each step, add the closure of the start state at the current `i`, so that a match may begin anywhere.
+2. **Accept early:** report a match as soon as the accept state is active at any position. Do not wait for the input to end.
+
+Example: `^ab` versus `ab`, searching in `xab`.
+
+- `ab` re-seeds at `i = 1`, reads `a` and `b`, and accepts.
+- `^ab` can only pass its `^` edge at `i = 0`, where `x` kills the branch. Every later re-seed is blocked at the `^` edge, so there is no match.
+
+Likewise, `ab$` matches `xab` but not `abx`: after reading `ab` at `i = 2`, the `$` edge is blocked because `2 ≠ n`.
 
 ## Visualizer JSON
 
@@ -130,12 +161,21 @@ Preserve readable labels **and** executable matcher semantics. `matcher: null` m
 
 Class evaluation: compute union membership of `items` for the current character, then invert if `negated`. Use actual matcher objects for simulation, never parse UI labels to decide which transitions fire.
 
+**Assertion edges:** an anchor edge has `matcher: null` and a separate `assertion` field, so it is never confused with a consuming matcher. A `null` matcher with no `assertion` is a plain ε-edge. Also add `"mode": "search" | "full"` and `"multiline": false` at the top level.
+
+```json
+{"from": 0, "to": 1, "label": "^", "matcher": null, "assertion": "start"}
+{"from": 4, "to": 5, "label": "$", "matcher": null, "assertion": "end"}
+```
+
+In the parse tree, an anchor is `{"type": "assertion", "name": "start" | "end", "label": "^" | "$"}`.
+
 ## Explain and validate
 
-1. Show the parse and any character-universe / newline assumptions.
-2. Construct fragments bottom-up; identify start, exit, and consuming vs. ε-edges.
-3. Trace **sets** of active states: start ε-closure, then matching moves followed by ε-closure after each character.
-4. Accept only when input is exhausted **and** an accept state is active. An inactive branch dying does not reject other branches.
-5. Check edge cases: empty input for `*` and `?`, one-or-more for `+`, precedence, ranges, negated classes, and newline behavior for `.`.
+1. Show the parse and any character-universe / newline / match-mode / multiline assumptions.
+2. Construct fragments bottom-up; identify start, exit, and consuming vs. ε vs. assertion edges.
+3. Trace **sets** of active states: start ε-closure, then matching moves followed by ε-closure after each character (assertion edges checked at the current position).
+4. Full match: accept only when input is exhausted **and** an accept state is active. Search: accept when an accept state becomes active at any position. An inactive branch dying does not reject other branches.
+5. Check edge cases: empty input for `*` and `?`, one-or-more for `+`, precedence, ranges, negated classes, newline behavior for `.`, and anchors: `^`/`$` on unanchored vs. anchored input, `^` inside vs. outside a class, and anchors inside alternation branches.
 
 If useful, contrast the systematic Thompson NFA with a smaller equivalent NFA, but do not confuse removing ε-edges with minimizing the automaton. If asked about NFA-to-regex, briefly describe state elimination; keep the main focus on construction and simulation.
