@@ -20,7 +20,8 @@ type NodeBase = { id: string }
 export type EmptyNode = NodeBase & { type: 'empty' }
 export type CharNode = NodeBase & { type: 'char'; label: string; matcher: Matcher }
 export type AssertionNode = NodeBase & { type: 'assertion'; name: AnchorName; label: AnchorLabel }
-export type GroupNode = NodeBase & { type: 'group'; body: AstNode }
+// name is present only for named capturing groups (?<name>...).
+export type GroupNode = NodeBase & { type: 'group'; name?: string; body: AstNode }
 export type StarNode = NodeBase & { type: 'star'; body: AstNode }
 export type PlusNode = NodeBase & { type: 'plus'; body: AstNode }
 export type OptionalNode = NodeBase & { type: 'optional'; body: AstNode }
@@ -118,6 +119,7 @@ class Parser {
   private readonly src: string
   private pos = 0
   private nextId = 0
+  private readonly groupNames = new Set<string>()
 
   constructor(pattern: string) {
     this.src = pattern
@@ -147,7 +149,7 @@ class Parser {
   private node(type: 'empty'): EmptyNode
   private node(type: 'concat', props: { items: AstNode[] }): ConcatNode
   private node(type: 'alternation', props: { alternatives: AstNode[] }): AlternationNode
-  private node(type: 'group', props: { body: AstNode }): GroupNode
+  private node(type: 'group', props: { name?: string; body: AstNode }): GroupNode
   private node(type: QuantifierType, props: { body: AstNode }): QuantifierNode
   private node(type: 'counted', props: { min: number; max: number | null; body: AstNode }): CountedNode
   private node(type: 'char', props: { label: string; matcher: Matcher }): CharNode
@@ -245,13 +247,11 @@ class Parser {
 
     if (ch === '(') {
       this.pos++
-      if (this.peek() === '?') {
-        this.fail('Unsupported: special groups and lookarounds (?...) are not supported')
-      }
+      const name = this.parseGroupName()
       const body = this.parseAlternation()
       if (this.peek() !== ')') this.fail("Missing ')'", start)
       this.pos++
-      return this.node('group', { body })
+      return this.node('group', name === undefined ? { body } : { name, body })
     }
 
     if (ch === '[') return this.parseClass()
@@ -268,6 +268,27 @@ class Parser {
 
     this.pos++
     return this.char(ch, { kind: 'literal', value: ch })
+  }
+
+  // groupName := '?<' [A-Za-z_$] [A-Za-z0-9_$]* '>', read right after '('.
+  private parseGroupName(): string | undefined {
+    if (this.peek() !== '?') return undefined
+    const after = this.src[this.pos + 2]
+    // (?<= and (?<! are lookbehinds, not names.
+    if (this.src[this.pos + 1] !== '<' || after === '=' || after === '!') {
+      this.fail('Unsupported: non-capturing groups, lookarounds and inline flags (?...) are not supported')
+    }
+    this.pos += 2 // skip '?<'
+    const nameStart = this.pos
+    while (/[A-Za-z0-9_$]/.test(this.peek() ?? '')) this.pos++
+    const name = this.src.slice(nameStart, this.pos)
+    if (!/^[A-Za-z_$]/.test(name) || this.peek() !== '>') {
+      this.fail('Invalid group name: use letters, digits, _ or $, not starting with a digit, followed by >', nameStart)
+    }
+    if (this.groupNames.has(name)) this.fail(`Duplicate group name "${name}"`, nameStart)
+    this.groupNames.add(name)
+    this.pos++ // skip '>'
+    return name
   }
 
   private char(label: string, matcher: Matcher): CharNode {
@@ -291,7 +312,7 @@ class Parser {
     if (ch === 'b' || ch === 'B') {
       this.fail('Unsupported: word boundaries (\\b, \\B) are not supported', start)
     }
-    if (/[1-9]/.test(ch)) this.fail('Unsupported: backreferences are not supported', start)
+    if (/[1-9]/.test(ch) || ch === 'k') this.fail('Unsupported: backreferences are not supported', start)
     if (/[A-Za-z0-9]/.test(ch)) this.fail(`Unsupported escape \\${ch}`, start)
     return { kind: 'literal', value: ch }
   }

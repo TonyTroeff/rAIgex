@@ -293,8 +293,43 @@ test('unescaped braces must form a valid count', () => {
   assert.deepEqual(error('a{3,2}'), { message: 'Invalid counted repetition {3,2}: minimum exceeds maximum', index: 1 })
 })
 
+test('named groups (?<name>...)', () => {
+  assert.deepEqual(ast('(?<year>\\d{4})'), {
+    type: 'group',
+    name: 'year',
+    body: { type: 'counted', min: 4, max: 4, body: { type: 'char', label: '\\d', matcher: { kind: 'category', name: 'digit', negated: false } } },
+  })
+  assert.deepEqual(ast('(?<_$a1>)+'), { type: 'plus', body: { type: 'group', name: '_$a1', body: { type: 'empty' } } })
+  assert.deepEqual(ast('(?<outer>(?<inner>a)|b)'), {
+    type: 'group',
+    name: 'outer',
+    body: { type: 'alternation', alternatives: [{ type: 'group', name: 'inner', body: lit('a') }, lit('b')] },
+  })
+  // Unnamed groups keep their original shape, without a name key.
+  assert.equal('name' in expectConcat('(a)(?<b>b)').items[0], false)
+})
+
+test('email pattern with a named domain group', () => {
+  const items = expectConcat('^[a-zA-Z0-9._%+-]+@(?<domain>[a-zA-Z0-9.-]+\\.[a-zA-Z])$').items
+  assert.deepEqual(items.map((item) => item.type), ['assertion', 'plus', 'char', 'group', 'assertion'])
+  const domain = items[3]
+  assert.ok(domain.type === 'group')
+  assert.equal(domain.name, 'domain')
+  assert.ok(domain.body.type === 'concat')
+  assert.deepEqual(domain.body.items.map((item) => item.type), ['plus', 'char', 'char'])
+})
+
+test('invalid group names', () => {
+  const invalid = 'Invalid group name: use letters, digits, _ or $, not starting with a digit, followed by >'
+  for (const pattern of ['(?<>a)', '(?<1a>a)', '(?<a-b>a)', '(?<a b>a)', '(?<name', '(?<']) {
+    assert.deepEqual(error(pattern), { message: invalid, index: 3 }, pattern)
+  }
+  assert.deepEqual(error('(?<x>a)(?<x>b)'), { message: 'Duplicate group name "x"', index: 10 })
+  assert.deepEqual(error('(?<x>a'), { message: "Missing ')'", index: 0 })
+})
+
 test('unsupported features are reported, not dropped', () => {
-  const patterns = ['a{2}?', 'a{2}{3}', 'a*{2}', 'a{2}+','\\bx', 'x\\B', '(a)\\1', '\\k', '(?:a)', '(?=a)', 'a*?', 'a+?', 'a??', 'a*+', 'a**']
+  const patterns = ['(?<=a)b', '(?<!a)b', '(?!a)', '(?i)a', '(?<x>a)\\k<x>', '(?', 'a{2}?','a{2}{3}', 'a*{2}', 'a{2}+','\\bx', 'x\\B', '(a)\\1', '\\k', '(?:a)', '(?=a)', 'a*?', 'a+?', 'a??', 'a*+', 'a**']
   for (const pattern of patterns) {
     assert.match(error(pattern).message, /^Unsupported/, pattern)
   }

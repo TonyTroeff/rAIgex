@@ -12,7 +12,7 @@ function flatten(node: AstNode): AstNode[] {
   return [node, ...astChildren(node).flatMap(flatten)]
 }
 
-const patterns = ['', 'a', 'ab', '(ab)c', '(ab)+', '(ab|cd)*', '()', 'a|', '|a', '^((a|b)+[c-e]?)\\d*$', '(a|b)*abb', '((a?)*|bc)+', '.[^a-z\\d_]\\W\\t', '[abcdefghijklmnopqrstuvwxyz0123456789]', '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', '(ab){3}c{1,2}']
+const patterns = ['', 'a', 'ab', '(ab)c', '(ab)+', '(ab|cd)*', '()', 'a|', '|a', '^((a|b)+[c-e]?)\\d*$', '(a|b)*abb', '((a?)*|bc)+', '.[^a-z\\d_]\\W\\t', '[abcdefghijklmnopqrstuvwxyz0123456789]', '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$', '(ab){3}c{1,2}', '^[a-zA-Z0-9._%+-]+@(?<domain>[a-zA-Z0-9.-]+\\.[a-zA-Z])$']
 
 test('every non-concat AST node is displayed once, retaining identity and metadata', () => {
   const types = new Set<string>()
@@ -156,4 +156,14 @@ test('counted repetition presents its bounds', () => {
   const { nodes } = buildRegexDiagram(ast('(ab){2,3}'))
   assert.deepEqual(nodes.map((node) => node.data.ast.type), ['counted', 'group', 'char', 'char'])
   assert.equal(nodes[0].type, 'regexContainer')
+})
+
+test('named groups show their name', () => {
+  assert.deepEqual(presentNode(ast('(?<domain>a)')), {
+    title: 'Group: "domain"',
+    symbol: '(…)',
+    description: 'Captures the enclosed expression as the group named "domain".',
+    tone: 'group',
+  })
+  assert.equal(presentNode(ast('(a)')).title, 'Group')
 })

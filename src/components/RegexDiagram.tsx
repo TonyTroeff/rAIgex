@@ -37,7 +37,7 @@ function RegexContainer({ data, selected }: NodeProps<RegexFlowNode>) {
   return (
     <div className={`regex-node container-node tone-${presentation.tone}${selected ? ' is-selected' : ''}`}>
       <Ports />
-      <div className="container-heading"><span className="container-symbol" title={presentation.symbol}>{presentation.symbol}</span><span>{presentation.title}</span></div>
+      <div className="container-heading"><span className="container-symbol">{presentation.symbol}</span><span className="container-title" title={presentation.title}>{presentation.title}</span></div>
       {separators.map((top) => <div key={top} className="alternative-divider" style={{ top }}><span>or</span></div>)}
     </div>
   )

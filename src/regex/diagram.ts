@@ -51,7 +51,9 @@ export function presentNode(ast: AstNode): NodePresentation {
     case 'empty': return { title: 'Empty expression', symbol: 'ε', description: 'Matches the empty string without consuming a character.', tone: 'empty' }
     case 'concat': return { title: 'Sequence', symbol: '→', description: 'Matches every child in order, from left to right.', tone: 'sequence' }
     case 'alternation': return { title: 'Any of', symbol: '|', description: 'Matches any one of the alternatives shown in separate lanes.', tone: 'choice' }
-    case 'group': return { title: 'Group', symbol: '(…)', description: 'Keeps the enclosed expression together as one group.', tone: 'group' }
+    case 'group':
+      if (ast.name !== undefined) return { title: `Group: "${ast.name}"`, symbol: '(…)', description: `Captures the enclosed expression as the group named ${JSON.stringify(ast.name)}.`, tone: 'group' }
+      return { title: 'Group', symbol: '(…)', description: 'Keeps the enclosed expression together as one group.', tone: 'group' }
     case 'star': return { title: 'Zero or more', symbol: '*', description: 'Repeats the enclosed expression zero or more times.', tone: 'repeat' }
     case 'plus': return { title: 'One or more', symbol: '+', description: 'Repeats the enclosed expression one or more times.', tone: 'repeat' }
     case 'optional': return { title: 'Optional', symbol: '?', description: 'Matches the enclosed expression zero or one time.', tone: 'repeat' }
