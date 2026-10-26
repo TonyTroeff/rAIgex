@@ -232,8 +232,69 @@ test('structural errors', () => {
   assert.deepEqual(error('ab\\'), { message: 'Trailing backslash', index: 2 })
 })
 
+test('counted repetition {m}, {m,} and {m,n}', () => {
+  assert.deepEqual(ast('a{3}'), { type: 'counted', min: 3, max: 3, body: lit('a') })
+  assert.deepEqual(ast('a{2,}'), { type: 'counted', min: 2, max: null, body: lit('a') })
+  assert.deepEqual(ast('a{0,5}'), { type: 'counted', min: 0, max: 5, body: lit('a') })
+  assert.deepEqual(ast('a{007}'), { type: 'counted', min: 7, max: 7, body: lit('a') })
+  assert.deepEqual(ast('(ab){2}c'), {
+    type: 'concat',
+    items: [{ type: 'counted', min: 2, max: 2, body: { type: 'group', body: { type: 'concat', items: [lit('a'), lit('b')] } } }, lit('c')],
+  })
+})
+
+test('email pattern with an open-ended count', () => {
+  const items = expectConcat('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$').items
+  assert.deepEqual(items.map((item) => item.type), ['assertion', 'plus', 'char', 'plus', 'char', 'counted', 'assertion'])
+  assert.deepEqual(items[5], {
+    type: 'counted',
+    min: 2,
+    max: null,
+    body: {
+      type: 'char',
+      label: '[a-zA-Z]',
+      matcher: { kind: 'class', negated: false, items: [{ kind: 'range', from: 'a', to: 'z' }, { kind: 'range', from: 'A', to: 'Z' }] },
+    },
+  })
+})
+
+const escaped = (value: string): Shaped<CharNode> => ({
+  type: 'char',
+  label: `\\${value}`,
+  matcher: { kind: 'literal', value },
+})
+
+test('escaped braces and braces inside a class are literals', () => {
+  assert.deepEqual(ast('\\{a\\}'), { type: 'concat', items: [escaped('{'), lit('a'), escaped('}')] })
+  assert.deepEqual(ast('\\{2\\}*'), {
+    type: 'concat',
+    items: [escaped('{'), lit('2'), { type: 'star', body: escaped('}') }],
+  })
+  assert.deepEqual(ast('a\\{2,3\\}'), {
+    type: 'concat',
+    items: [lit('a'), escaped('{'), lit('2'), lit(','), lit('3'), escaped('}')],
+  })
+  assert.deepEqual(expectClass('[{}]').items, [
+    { kind: 'literal', value: '{' },
+    { kind: 'literal', value: '}' },
+  ])
+})
+
+test('unescaped braces must form a valid count', () => {
+  const invalid = 'Invalid counted repetition: expected {m}, {m,} or {m,n} (escape literal braces as \\{ and \\})'
+  assert.deepEqual(error('{2}'), { message: 'Nothing to repeat', index: 0 })
+  assert.deepEqual(error('a|{2}'), { message: 'Nothing to repeat', index: 2 })
+  assert.deepEqual(error('^{2}'), { message: 'Nothing to repeat', index: 1 })
+  assert.deepEqual(error('a}'), { message: "Unmatched '}'", index: 1 })
+  assert.deepEqual(error('a\\{2}'), { message: "Unmatched '}'", index: 4 })
+  for (const pattern of ['a{', 'a{}', 'a{,3}', 'a{2', 'a{2,3', 'a{x}', 'a{ 2}', 'a{2,x}']) {
+    assert.deepEqual(error(pattern), { message: invalid, index: 1 }, pattern)
+  }
+  assert.deepEqual(error('a{3,2}'), { message: 'Invalid counted repetition {3,2}: minimum exceeds maximum', index: 1 })
+})
+
 test('unsupported features are reported, not dropped', () => {
-  const patterns = ['a{2}', 'a{2,3}', '\\bx', 'x\\B', '(a)\\1', '\\k', '(?:a)', '(?=a)', 'a*?', 'a+?', 'a??', 'a*+', 'a**']
+  const patterns = ['a{2}?', 'a{2}{3}', 'a*{2}', 'a{2}+','\\bx', 'x\\B', '(a)\\1', '\\k', '(?:a)', '(?=a)', 'a*?', 'a+?', 'a??', 'a*+', 'a**']
   for (const pattern of patterns) {
     assert.match(error(pattern).message, /^Unsupported/, pattern)
   }

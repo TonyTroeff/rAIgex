@@ -33,6 +33,9 @@ function describeMatcher(matcher: Matcher): string {
     case 'class': return `Matches one character ${matcher.negated ? 'outside' : 'from'} this set: ${matcher.items.map(describeClassItem).join(', ')}.`
   }
 }
+function times(count: number): string {
+  return count === 1 ? '1 time' : `${count} times`
+}
 export function presentNode(ast: AstNode): NodePresentation {
   switch (ast.type) {
     case 'char': {
@@ -52,6 +55,12 @@ export function presentNode(ast: AstNode): NodePresentation {
     case 'star': return { title: 'Zero or more', symbol: '*', description: 'Repeats the enclosed expression zero or more times.', tone: 'repeat' }
     case 'plus': return { title: 'One or more', symbol: '+', description: 'Repeats the enclosed expression one or more times.', tone: 'repeat' }
     case 'optional': return { title: 'Optional', symbol: '?', description: 'Matches the enclosed expression zero or one time.', tone: 'repeat' }
+    case 'counted': {
+      const { min, max } = ast
+      if (max === min) return { title: `Exactly ${min}`, symbol: `{${min}}`, description: `Repeats the enclosed expression exactly ${times(min)}.`, tone: 'repeat' }
+      if (max === null) return { title: `${min} or more`, symbol: `{${min},}`, description: `Repeats the enclosed expression at least ${times(min)}.`, tone: 'repeat' }
+      return { title: `${min} to ${max}`, symbol: `{${min},${max}}`, description: `Repeats the enclosed expression between ${min} and ${times(max)}.`, tone: 'repeat' }
+    }
   }
 }
 export function astChildren(ast: AstNode): AstNode[] {
@@ -61,7 +70,8 @@ export function astChildren(ast: AstNode): AstNode[] {
     case 'group':
     case 'star':
     case 'plus':
-    case 'optional': return [ast.body]
+    case 'optional':
+    case 'counted': return [ast.body]
     default: return []
   }
 }

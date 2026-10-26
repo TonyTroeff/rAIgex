@@ -1,5 +1,5 @@
 // Hand-written recursive-descent regex parser.
-// Precedence (highest to lowest): postfix * + ?, concatenation, alternation |.
+// Precedence (highest to lowest): postfix * + ? {m,n}, concatenation, alternation |.
 // Matcher objects follow the regex-deep-dive visualizer JSON conventions.
 
 export type CategoryName = 'digit' | 'word' | 'space'
@@ -24,6 +24,8 @@ export type GroupNode = NodeBase & { type: 'group'; body: AstNode }
 export type StarNode = NodeBase & { type: 'star'; body: AstNode }
 export type PlusNode = NodeBase & { type: 'plus'; body: AstNode }
 export type OptionalNode = NodeBase & { type: 'optional'; body: AstNode }
+// Counted repetition {m}, {m,} or {m,n}; max is null when unbounded.
+export type CountedNode = NodeBase & { type: 'counted'; min: number; max: number | null; body: AstNode }
 export type ConcatNode = NodeBase & { type: 'concat'; items: AstNode[] }
 export type AlternationNode = NodeBase & { type: 'alternation'; alternatives: AstNode[] }
 export type QuantifierNode = StarNode | PlusNode | OptionalNode
@@ -36,6 +38,7 @@ export type AstNode =
   | StarNode
   | PlusNode
   | OptionalNode
+  | CountedNode
   | ConcatNode
   | AlternationNode
 
@@ -146,6 +149,7 @@ class Parser {
   private node(type: 'alternation', props: { alternatives: AstNode[] }): AlternationNode
   private node(type: 'group', props: { body: AstNode }): GroupNode
   private node(type: QuantifierType, props: { body: AstNode }): QuantifierNode
+  private node(type: 'counted', props: { min: number; max: number | null; body: AstNode }): CountedNode
   private node(type: 'char', props: { label: string; matcher: Matcher }): CharNode
   private node(type: 'assertion', props: { name: AnchorName; label: AnchorLabel }): AssertionNode
   private node(type: AstNode['type'], props?: object): AstNode {
@@ -178,22 +182,52 @@ class Parser {
   }
 
   // repeat := atom quantifier?
+  // quantifier := '*' | '+' | '?' | counted
   private parseRepeat(): AstNode {
-    let body = this.parseAtom()
+    const body = this.parseAtom()
     const ch = this.peek()
-    if (isQuantifier(ch)) {
-      // Anchors are zero-width, so there is nothing to repeat.
-      if (body.type === 'assertion') this.fail('Nothing to repeat')
+    if (!isQuantifier(ch) && ch !== '{') return body
+    // Anchors are zero-width, so there is nothing to repeat.
+    if (body.type === 'assertion') this.fail('Nothing to repeat')
+
+    let repeated: AstNode
+    if (ch === '{') {
+      repeated = this.parseCounted(body)
+    } else {
       this.pos++
-      body = this.node(QUANTIFIERS[ch], { body })
-      if (isQuantifier(this.peek())) {
-        this.fail('Unsupported: lazy/possessive or stacked quantifiers are not supported')
-      }
+      repeated = this.node(QUANTIFIERS[ch], { body })
     }
-    if (this.peek() === '{') {
-      this.fail('Unsupported: counted repetition {m,n} is not supported')
+    if (isQuantifier(this.peek()) || this.peek() === '{') {
+      this.fail('Unsupported: lazy/possessive or stacked quantifiers are not supported')
     }
-    return body
+    return repeated
+  }
+
+  // counted := '{' digits (',' digits?)? '}'
+  // Braces are metacharacters: a literal brace must be escaped as \{ or \}.
+  private parseCounted(body: AstNode): CountedNode {
+    const start = this.pos
+    this.pos++ // skip '{'
+    const min = this.parseNumber()
+    let max: number | null = min
+    if (min !== null && this.peek() === ',') {
+      this.pos++
+      max = this.parseNumber()
+    }
+    if (min === null || this.peek() !== '}') {
+      this.fail('Invalid counted repetition: expected {m}, {m,} or {m,n} (escape literal braces as \\{ and \\})', start)
+    }
+    this.pos++ // skip '}'
+    if (max !== null && min > max) {
+      this.fail(`Invalid counted repetition {${min},${max}}: minimum exceeds maximum`, start)
+    }
+    return this.node('counted', { min, max, body })
+  }
+
+  private parseNumber(): number | null {
+    const start = this.pos
+    while (/[0-9]/.test(this.peek() ?? '')) this.pos++
+    return this.pos > start ? Number(this.src.slice(start, this.pos)) : null
   }
 
   private parseAtom(): AstNode {
@@ -201,8 +235,8 @@ class Parser {
     const ch = this.peek()
     if (ch === undefined) this.fail('Unexpected end of pattern')
 
-    if (isQuantifier(ch)) this.fail('Nothing to repeat')
-    if (ch === '{') this.fail('Unsupported: counted repetition {m,n} is not supported')
+    if (isQuantifier(ch) || ch === '{') this.fail('Nothing to repeat')
+    if (ch === '}') this.fail("Unmatched '}'")
 
     if (isAnchor(ch)) {
       this.pos++

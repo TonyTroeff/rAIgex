@@ -12,7 +12,7 @@ function flatten(node: AstNode): AstNode[] {
   return [node, ...astChildren(node).flatMap(flatten)]
 }
 
-const patterns = ['', 'a', 'ab', '(ab)c', '(ab)+', '(ab|cd)*', '()', 'a|', '|a', '^((a|b)+[c-e]?)\\d*$', '(a|b)*abb', '((a?)*|bc)+', '.[^a-z\\d_]\\W\\t', '[abcdefghijklmnopqrstuvwxyz0123456789]']
+const patterns = ['', 'a', 'ab', '(ab)c', '(ab)+', '(ab|cd)*', '()', 'a|', '|a', '^((a|b)+[c-e]?)\\d*$', '(a|b)*abb', '((a?)*|bc)+', '.[^a-z\\d_]\\W\\t', '[abcdefghijklmnopqrstuvwxyz0123456789]', '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', '(ab){3}c{1,2}']
 
 test('every non-concat AST node is displayed once, retaining identity and metadata', () => {
   const types = new Set<string>()
@@ -35,7 +35,7 @@ test('every non-concat AST node is displayed once, retaining identity and metada
       assert.equal(node.type, astChildren(treeNode).length ? 'regexContainer' : 'regexLeaf')
     }
   }
-  assert.equal(types.size, 8)
+  assert.equal(types.size, 9)
 })
 
 test('parents precede descendants and every child fits inside its parent below the header', () => {
@@ -146,4 +146,14 @@ test('leaf meanings preserve escapes, ranges, categories, negation, and zero-wid
   assert.equal(describeClassItem({ kind: 'literal', value: '\n' }), '"\\n"')
   const long = ast('[abcdefghijklmnopqrstuvwxyz0123456789]')
   assert.equal(presentNode(long).symbol, '[abcdefghijklmnopqrstuvwxyz0123456789]')
+})
+
+test('counted repetition presents its bounds', () => {
+  assert.deepEqual(presentNode(ast('a{3}')), { title: 'Exactly 3', symbol: '{3}', description: 'Repeats the enclosed expression exactly 3 times.', tone: 'repeat' })
+  assert.deepEqual(presentNode(ast('a{1}')).description, 'Repeats the enclosed expression exactly 1 time.')
+  assert.deepEqual(presentNode(ast('a{2,}')), { title: '2 or more', symbol: '{2,}', description: 'Repeats the enclosed expression at least 2 times.', tone: 'repeat' })
+  assert.deepEqual(presentNode(ast('a{0,5}')), { title: '0 to 5', symbol: '{0,5}', description: 'Repeats the enclosed expression between 0 and 5 times.', tone: 'repeat' })
+  const { nodes } = buildRegexDiagram(ast('(ab){2,3}'))
+  assert.deepEqual(nodes.map((node) => node.data.ast.type), ['counted', 'group', 'char', 'char'])
+  assert.equal(nodes[0].type, 'regexContainer')
 })
