@@ -1,30 +1,72 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseRegex } from './parser.js'
+import { test } from 'node:test'
+import {
+  parseRegex,
+  type AssertionNode,
+  type AstNode,
+  type CharNode,
+  type ClassMatcher,
+  type ConcatNode,
+  type ParseError,
+} from './parser.ts'
+
+type Shaped<T> = T extends { id: string }
+  ? { [K in keyof Omit<T, 'id'>]: Shaped<T[K]> }
+  : T extends (infer U)[]
+    ? Shaped<U>[]
+    : T
+
+type ShapedAst = Shaped<AstNode>
 
 // Strip ids so tests compare structure only.
-function shape(node) {
-  if (Array.isArray(node)) return node.map(shape)
-  if (node && typeof node === 'object') {
-    const { id, ...rest } = node
-    return Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, shape(v)]))
+function shape<T>(value: T): Shaped<T> {
+  if (Array.isArray(value)) return value.map((item) => shape(item)) as Shaped<T>
+  if (value !== null && typeof value === 'object') {
+    const shaped: Record<string, unknown> = {}
+    for (const [key, nested] of Object.entries(value)) {
+      if (key === 'id') continue
+      shaped[key] = shape(nested)
+    }
+    return shaped as Shaped<T>
   }
-  return node
+  return value as Shaped<T>
 }
 
-function ast(pattern) {
+function ast(pattern: string): ShapedAst {
   const result = parseRegex(pattern)
-  assert.ok(result.ok, `expected ${pattern} to parse: ${result.error?.message}`)
+  assert.ok(result.ok, `expected ${pattern} to parse: ${result.ok ? '' : result.error.message}`)
   return shape(result.ast)
 }
 
-function error(pattern) {
+function error(pattern: string): ParseError {
   const result = parseRegex(pattern)
   assert.ok(!result.ok, `expected ${pattern} to fail`)
   return result.error
 }
 
-const lit = (value) => ({ type: 'char', label: value, matcher: { kind: 'literal', value } })
+function expectChar(pattern: string): Shaped<CharNode> {
+  const node = ast(pattern)
+  assert.ok(node.type === 'char')
+  return node
+}
+
+function expectClass(pattern: string): ClassMatcher {
+  const matcher = expectChar(pattern).matcher
+  assert.ok(matcher.kind === 'class')
+  return matcher
+}
+
+function expectConcat(pattern: string): Shaped<ConcatNode> {
+  const node = ast(pattern)
+  assert.ok(node.type === 'concat')
+  return node
+}
+
+const lit = (value: string): Shaped<CharNode> => ({
+  type: 'char',
+  label: value,
+  matcher: { kind: 'literal', value },
+})
 
 test('postfix binds tighter than concatenation: ab*', () => {
   assert.deepEqual(ast('ab*'), { type: 'concat', items: [lit('a'), { type: 'star', body: lit('b') }] })
@@ -72,11 +114,11 @@ test('dot, negated class with category, shorthand: .[^\\d]\\w', () => {
 })
 
 test('negated shorthands', () => {
-  assert.deepEqual(ast('\\S').matcher, { kind: 'category', name: 'space', negated: true })
+  assert.deepEqual(expectChar('\\S').matcher, { kind: 'category', name: 'space', negated: true })
 })
 
 test('class with ranges and literal', () => {
-  assert.deepEqual(ast('[a-z0-9_]').matcher, {
+  assert.deepEqual(expectChar('[a-z0-9_]').matcher, {
     kind: 'class',
     negated: false,
     items: [
@@ -88,13 +130,13 @@ test('class with ranges and literal', () => {
 })
 
 test('negated class [^abc]', () => {
-  const m = ast('[^abc]').matcher
-  assert.equal(m.negated, true)
-  assert.equal(m.items.length, 3)
+  const matcher = expectClass('[^abc]')
+  assert.equal(matcher.negated, true)
+  assert.equal(matcher.items.length, 3)
 })
 
 test('leading/trailing dash in class is literal', () => {
-  assert.deepEqual(ast('[-a-]').matcher.items, [
+  assert.deepEqual(expectClass('[-a-]').items, [
     { kind: 'literal', value: '-' },
     { kind: 'literal', value: 'a' },
     { kind: 'literal', value: '-' },
@@ -102,9 +144,15 @@ test('leading/trailing dash in class is literal', () => {
 })
 
 test('escaped metacharacters are literals', () => {
-  assert.deepEqual(ast('\\.').matcher, { kind: 'literal', value: '.' })
-  assert.deepEqual(ast('[\\]\\-\\^]').matcher.items.map((i) => i.value), [']', '-', '^'])
-  assert.deepEqual(ast('\\t').matcher, { kind: 'literal', value: '\t' })
+  assert.deepEqual(expectChar('\\.').matcher, { kind: 'literal', value: '.' })
+  assert.deepEqual(
+    expectClass('[\\]\\-\\^]').items.map((item) => {
+      assert.ok(item.kind === 'literal')
+      return item.value
+    }),
+    [']', '-', '^'],
+  )
+  assert.deepEqual(expectChar('\\t').matcher, { kind: 'literal', value: '\t' })
 })
 
 test('empty pattern, empty group and empty branches', () => {
@@ -114,16 +162,18 @@ test('empty pattern, empty group and empty branches', () => {
 })
 
 test('node ids are unique', () => {
-  const ids = []
-  JSON.stringify(parseRegex('(a|b)*[x-z]\\d').ast, (k, v) => {
-    if (k === 'id') ids.push(v)
-    return v
+  const result = parseRegex('(a|b)*[x-z]\\d')
+  assert.ok(result.ok)
+  const ids: string[] = []
+  JSON.stringify(result.ast, (key, value: unknown) => {
+    if (key === 'id' && typeof value === 'string') ids.push(value)
+    return value
   })
   assert.equal(new Set(ids).size, ids.length)
 })
 
-const start = { type: 'assertion', name: 'start', label: '^' }
-const end = { type: 'assertion', name: 'end', label: '$' }
+const start = { type: 'assertion', name: 'start', label: '^' } as const satisfies Shaped<AssertionNode>
+const end = { type: 'assertion', name: 'end', label: '$' } as const satisfies Shaped<AssertionNode>
 
 test('anchors are assertion atoms: ^ab$', () => {
   assert.deepEqual(ast('^ab$'), { type: 'concat', items: [start, lit('a'), lit('b'), end] })
@@ -140,14 +190,14 @@ test('anchors bind inside alternation branches: ^ab|c$', () => {
 })
 
 test('anchors around a group and alone', () => {
-  assert.deepEqual(ast('^(a|b)$').items[1].type, 'group')
+  assert.deepEqual(expectConcat('^(a|b)$').items[1].type, 'group')
   assert.deepEqual(ast('^'), start)
   assert.deepEqual(ast('$'), end)
-  assert.deepEqual(ast('a^b').items[1], start)
+  assert.deepEqual(expectConcat('a^b').items[1], start)
 })
 
 test('^ and $ are literals inside a class or when escaped', () => {
-  assert.deepEqual(ast('[a^$]').matcher, {
+  assert.deepEqual(expectChar('[a^$]').matcher, {
     kind: 'class',
     negated: false,
     items: [

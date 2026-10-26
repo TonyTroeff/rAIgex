@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { parseRegex } from './regex/parser.js'
+import { parseRegex } from './regex/parser.ts'
 
 export default function App() {
   const [pattern, setPattern] = useState('(a|b)*abb')
@@ -11,7 +11,7 @@ export default function App() {
       <input
         className="regex-input"
         value={pattern}
-        onChange={(e) => setPattern(e.target.value)}
+        onChange={(event) => setPattern(event.target.value)}
         placeholder="Enter a regular expression, e.g. (a|b)*abb"
         spellCheck={false}
         autoComplete="off"
