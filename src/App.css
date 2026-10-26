@@ -54,9 +54,10 @@ code, pre, .regex-input, .leaf-symbol, .container-symbol { font-family: 'JetBrai
 .leaf-node { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 14px; box-shadow: 0 2px 4px #34466805; }
 .leaf-symbol { font-size: 26px; color: var(--node-accent); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.25; }
 .leaf-title { color: #69798e; font-size: 12px; margin-top: 2px; }
-.zero-width { font-size: 8px; color: #a58e6a; margin-top: 3px; }
-.container-heading { position: absolute; left: 14px; top: 13px; display: flex; align-items: center; gap: 7px; color: var(--node-accent); font-size: 14px; font-weight: 600; }
-.container-symbol { background: var(--node-header); border-radius: 5px; min-width: 23px; height: 23px; padding: 2px 5px; display: grid; place-items: center; font-size: 13px; }
+.leaf-node.assertion-node .container-heading { position: static; width: auto; justify-content: center; }
+.container-heading { position: absolute; left: 14px; right: 14px; top: 13px; display: flex; align-items: center; gap: 7px; color: var(--node-accent); font-size: 14px; font-weight: 600; }
+.container-symbol { background: var(--node-header); border-radius: 5px; min-width: 23px; height: 23px; padding: 2px 5px; font-size: 13px; line-height: 19px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.container-heading > span:last-child { flex-shrink: 0; }
 .alternative-divider { position: absolute; left: 16px; right: 16px; border-top: 1px dashed #b7d6e0; pointer-events: none; text-align: center; }
 .alternative-divider span { position: relative; top: -8px; background: #eff8fa; padding: 0 6px; color: #82a7b1; font-size: 9px; }
 .regex-node .react-flow__handle { width: 1px; height: 1px; min-width: 1px; min-height: 1px; opacity: 0; border: none; pointer-events: none; }

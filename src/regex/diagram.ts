@@ -85,6 +85,8 @@ type Layout = {
 }
 const CARD_WIDTH = 156
 const CARD_HEIGHT = 88
+const ASSERTION_WIDTH = 140
+const ASSERTION_HEIGHT = 52
 const PADDING = 22
 const CONTENT_TOP = 62
 const SEQUENCE_GAP = 40
@@ -92,7 +94,12 @@ const LANE_GAP = 28
 
 function measure(ast: AstNode): Layout {
   const children = astChildren(ast).map(measure)
-  if (children.length === 0) return { ast, width: CARD_WIDTH, height: CARD_HEIGHT, children: [], separators: [] }
+  if (children.length === 0) {
+    const leaf = ast.type === 'assertion'
+      ? { width: ASSERTION_WIDTH, height: ASSERTION_HEIGHT }
+      : { width: CARD_WIDTH, height: CARD_HEIGHT }
+    return { ast, ...leaf, children: [], separators: [] }
+  }
   const horizontal = ast.type === 'concat'
   const vertical = ast.type === 'alternation'
   const contentWidth = horizontal
